@@ -580,6 +580,26 @@
             </div>
           </div>
 
+          <div class="option-group">
+            <label>中心文字（可选，显示在二维码中间）</label>
+            <input type="text" id="centerText" placeholder="例如：扫一扫 / 卡册 / 店铺名" style="min-height:0;height:44px;">
+          </div>
+
+          <div class="options-grid">
+            <div class="option-group">
+              <label>文字颜色</label>
+              <input type="color" id="centerTextColor" value="#1f2937">
+            </div>
+            <div class="option-group">
+              <label>文字大小：<span class="option-value" id="textSizeValue">20</span>%</label>
+              <input type="range" id="centerTextSize" min="10" max="40" value="20" step="1">
+            </div>
+          </div>
+
+          <div style="font-size: 12px; color: var(--text-light); margin-top: 2px; line-height: 1.5;">
+            💡 使用中心文字/Logo 时建议选择「高」或「最高」容错等级，扫码更稳定。
+          </div>
+
           <button id="generateBtn" class="generate-btn">✨ 生成永久二维码</button>
         </div>
       </div>
@@ -683,6 +703,10 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
     const logoInput = document.getElementById('logoInput');
     const logoPreview = document.getElementById('logoPreview');
     const logoRemove = document.getElementById('logoRemove');
+    const centerText = document.getElementById('centerText');
+    const centerTextColor = document.getElementById('centerTextColor');
+    const centerTextSize = document.getElementById('centerTextSize');
+    const textSizeValue = document.getElementById('textSizeValue');
     const generateBtn = document.getElementById('generateBtn');
     const qrContainer = document.getElementById('qrContainer');
     const qrPlaceholder = document.getElementById('qrPlaceholder');
@@ -719,6 +743,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       // 尺寸滑块
       qrSize.addEventListener('input', () => {
         sizeValue.textContent = qrSize.value;
+      });
+
+      // 中心文字大小滑块
+      centerTextSize.addEventListener('input', () => {
+        textSizeValue.textContent = centerTextSize.value;
       });
 
       // Logo上传
@@ -844,10 +873,11 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
           canvas.style.display = 'block';
         }
 
-        // 如果有Logo，叠加到二维码中心
-        if (state.logoImage) {
-          overlayLogo(canvas, genSeq);
-        }
+        // 读取中心文字输入
+        state.centerText = centerText.value;
+
+        // 叠加中心装饰（Logo / 中心文字）
+        drawCenterDecorations(canvas, genSeq);
 
         // 更新按钮状态
         updateButtons(true);
@@ -862,29 +892,97 @@ var QRCode;!function(){function a(a){this.mode=c.MODE_8BIT_BYTE,this.data=a,this
       }
     }
 
-    // ========== 叠加Logo ==========
-    function overlayLogo(canvas, genSeq) {
-      const ctx = canvas.getContext('2d');
-      const img = new Image();
-      img.onload = () => {
-        // 若期间已生成新的二维码，丢弃本次过期绘制
-        if (genSeq !== state.genSeq) return;
+    // ========== 中心装饰（Logo + 中心文字） ==========
+    function drawCenterDecorations(canvas, genSeq) {
+      const hasText = !!(state.centerText && state.centerText.trim());
+      const hasLogo = !!state.logoImage;
+      if (!canvas || (!hasText && !hasLogo)) return;
 
-        const logoSize = Math.floor(canvas.width * 0.2); // Logo占二维码20%
-        const x = (canvas.width - logoSize) / 2;
-        const y = (canvas.height - logoSize) / 2;
+      // 画文字（文字叠在最上层）
+      const drawText = () => { if (hasText) overlayText(canvas, genSeq); };
 
-        // 绘制白色背景圆角矩形
-        const padding = 4;
-        ctx.fillStyle = bgColor.value;
-        ctx.fillRect(x - padding, y - padding, logoSize + padding * 2, logoSize + padding * 2);
-
-        // 绘制Logo
-        ctx.drawImage(img, x, y, logoSize, logoSize);
-
+      if (hasLogo) {
+        const img = new Image();
+        img.onload = () => {
+          // 若期间已生成新的二维码，丢弃本次过期绘制
+          if (genSeq !== state.genSeq) return;
+          overlayLogoOnCanvas(canvas, img);
+          drawText();
+          state.currentCanvas = canvas;
+        };
+        img.src = state.logoImage;
+      } else {
+        drawText();
         state.currentCanvas = canvas;
+      }
+    }
+
+    function overlayLogoOnCanvas(canvas, img) {
+      const ctx = canvas.getContext('2d');
+      const logoSize = Math.floor(canvas.width * 0.2); // Logo占二维码20%
+      const x = (canvas.width - logoSize) / 2;
+      const y = (canvas.height - logoSize) / 2;
+
+      // 绘制白色背景圆角矩形
+      const padding = 4;
+      ctx.fillStyle = bgColor.value;
+      ctx.fillRect(x - padding, y - padding, logoSize + padding * 2, logoSize + padding * 2);
+
+      // 绘制Logo
+      ctx.drawImage(img, x, y, logoSize, logoSize);
+    }
+
+    // 在二维码中心叠加文字（自动适应大小 + 圆角白底）
+    function overlayText(canvas, genSeq) {
+      if (genSeq !== state.genSeq) return;
+
+      const text = state.centerText.trim();
+      const ctx = canvas.getContext('2d');
+      const percent = parseInt(centerTextSize.value) / 100;
+      const maxHeight = Math.max(14, Math.floor(canvas.height * percent));
+      let fontSize = maxHeight;
+      const fontFamily = '"PingFang SC","Microsoft YaHei",sans-serif';
+
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+
+      // 文字过宽时自动缩小，保证不超出二维码宽度的45%
+      const maxWidth = Math.floor(canvas.width * 0.45);
+      let textWidth;
+      const setFont = () => {
+        ctx.font = `bold ${fontSize}px ${fontFamily}`;
+        textWidth = ctx.measureText(text).width;
       };
-      img.src = state.logoImage;
+      setFont();
+      while (textWidth > maxWidth && fontSize > 10) {
+        fontSize -= 2;
+        setFont();
+      }
+
+      // 白色圆角背景框
+      const padding = 10;
+      const boxW = textWidth + padding * 2;
+      const boxH = fontSize + padding * 2;
+      const x = (canvas.width - boxW) / 2;
+      const y = (canvas.height - boxH) / 2;
+
+      ctx.fillStyle = bgColor.value;
+      roundRect(ctx, x, y, boxW, boxH, 10);
+      ctx.fill();
+
+      // 绘制文字
+      ctx.fillStyle = centerTextColor.value;
+      ctx.fillText(text, canvas.width / 2, canvas.height / 2 + 1);
+    }
+
+    function roundRect(ctx, x, y, w, h, r) {
+      ctx.beginPath();
+      ctx.moveTo(x + r, y);
+      ctx.arcTo(x + w, y, x + w, y + h, r);
+      ctx.arcTo(x + w, y + h, x, y + h, r);
+      ctx.arcTo(x, y + h, x, y, r);
+      ctx.arcTo(x, y, x + w, y, r);
+      ctx.closePath();
     }
 
     // ========== 下载二维码 ==========
